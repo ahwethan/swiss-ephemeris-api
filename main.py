@@ -13,14 +13,18 @@ swe.set_ephe_path('./sweph')
 def get_coordinates(location_name):
     """Convert location name to coordinates"""
     try:
+        print(f"Looking up coordinates for: {location_name}")
         geolocator = Nominatim(user_agent="horary_astrology_app")
         location = geolocator.geocode(location_name)
         if location:
+            print(f"Found coordinates: {location.latitude}, {location.longitude}")
             return location.latitude, location.longitude
         else:
+            print(f"Location not found: {location_name}, using Istanbul default")
             # Default to Istanbul if location not found
             return 41.0082, 28.9784
-    except:
+    except Exception as e:
+        print(f"Geocoding error for {location_name}: {e}")
         return 41.0082, 28.9784
 
 def calculate_julian_day(date_str, time_str, timezone_offset=3):
@@ -165,8 +169,7 @@ def calculate_horoscope():
         # Extract required parameters
         birth_date = data.get('birth_date')
         birth_time = data.get('birth_time')
-        latitude = float(data.get('latitude', 41.0082))
-        longitude = float(data.get('longitude', 28.9784))
+        birth_place = data.get('birth_place')
         timezone_offset = int(data.get('timezone_offset', 3))
         
         # Validate required fields
@@ -177,13 +180,34 @@ def calculate_horoscope():
                 'example': {
                     'birth_date': '1990-01-01',
                     'birth_time': '12:00',
-                    'latitude': 41.0082,
-                    'longitude': 28.9784
+                    'birth_place': 'Istanbul' # or latitude + longitude
                 }
             }), 400
         
+        # Get coordinates - either from birth_place or direct lat/lng
+        if birth_place:
+            print(f"Looking up coordinates for: {birth_place}")
+            latitude, longitude = get_coordinates(birth_place)
+            location_info = {
+                'birth_place': birth_place,
+                'resolved_coordinates': {
+                    'latitude': latitude,
+                    'longitude': longitude
+                }
+            }
+        else:
+            # Fallback to direct coordinates
+            latitude = float(data.get('latitude', 41.0082))
+            longitude = float(data.get('longitude', 28.9784))
+            location_info = {
+                'latitude': latitude,
+                'longitude': longitude,
+                'note': 'Direct coordinates used'
+            }
+        
+        print(f"Using coordinates: {latitude}, {longitude}")
+        
         # Calculate Julian Day
-        from datetime import timedelta
         julian_day = calculate_julian_day(birth_date, birth_time, timezone_offset)
         
         if julian_day is None:
@@ -205,23 +229,24 @@ def calculate_horoscope():
             'input_data': {
                 'birth_date': birth_date,
                 'birth_time': birth_time,
-                'latitude': latitude,
-                'longitude': longitude,
                 'timezone_offset': timezone_offset,
-                'julian_day': round(julian_day, 6)
+                'julian_day': round(julian_day, 6),
+                **location_info
             },
             'planets': planets,
             'houses': houses,
             'chart_info': {
                 'calculation_time': datetime.now().isoformat(),
                 'ephemeris': 'Swiss Ephemeris',
-                'house_system': 'Placidus'
+                'house_system': 'Placidus',
+                'location_service': 'Nominatim (OpenStreetMap)'
             }
         }
         
         return jsonify(result)
         
     except Exception as e:
+        print(f"Calculation error: {str(e)}")
         return jsonify({
             'success': False,
             'error': f'Calculation error: {str(e)}',
